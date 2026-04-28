@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "author": "Uri Shaked",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-aitewinrobot-esp32c3-supermini",
+      "id": "esp",
+      "top": -89.04,
+      "left": -43.93,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -99.6,
+      "left": -82.6,
+      "attrs": { "color": "purple" }
+    },
+    { "type": "wokwi-relay-module", "id": "relay1", "top": -278.2, "left": -336, "attrs": {} },
+    {
+      "type": "wokwi-led-ring",
+      "id": "ring1",
+      "top": -316.16,
+      "left": -181.21,
+      "attrs": { "pixels": "16" }
+    },
+    { "type": "wokwi-servo", "id": "servo1", "top": 55.6, "left": -278.4, "attrs": {} },
+    { "type": "wokwi-servo", "id": "servo2", "top": -21.2, "left": -288, "attrs": {} },
+    { "type": "wokwi-servo", "id": "servo3", "top": -136.4, "left": -288, "attrs": {} },
+    { "type": "wokwi-photoresistor-sensor", "id": "ldr1", "top": -304, "left": -8.8, "attrs": {} },
+    { "type": "board-bmp180", "id": "bmp1", "top": -196.16, "left": -306.94, "attrs": {} },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": -208.8,
+      "left": 40.2,
+      "attrs": { "volume": "0.1" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "esp:8", "led1:A", "red", [ "h-9.6", "v0", "h-9.6" ] ],
+    [ "led1:C", "esp:GND", "black", [ "v67.2", "h96.4", "v-76.8" ] ]
+  ],
+  "dependencies": {}
+}
