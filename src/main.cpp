@@ -5,7 +5,7 @@
 #include <ArduinoJson.h>
 
 // Configuración OpenWeatherMap
-const String apiKey = "TU_API_KEY_AQUI";
+const String apiKey = "e41bd5ef197ab7ccdae632db3d023654";
 const String city = "TuCiudad";
 const String countryCode = "AR"; // Ejemplo: AR para Argentina, ES para España
 unsigned long lastWeatherUpdate = 0;
