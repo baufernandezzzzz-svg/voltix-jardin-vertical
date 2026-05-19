@@ -6,8 +6,13 @@
 
 // Configuración OpenWeatherMap
 const String apiKey = "e41bd5ef197ab7ccdae632db3d023654";
+<<<<<<< HEAD
 const String city = "Buenos Aires";
 const String countryCode = "AR";
+=======
+const String city = "TuCiudad";
+const String countryCode = "AR"; // Ejemplo: AR para Argentina, ES para España
+>>>>>>> b2432bbcd17ccdd704f420df52f3e2095c543f1b
 unsigned long lastWeatherUpdate = 0;
 const unsigned long weatherInterval = 1800000; // 30 min
 
