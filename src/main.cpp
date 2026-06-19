@@ -5,8 +5,9 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP085_U.h>
-#include <ESP32Servo.h> // NUEVO: Librería para controlar el servo
-#include <time.h>       // NUEVO: Librería para manejar la hora real
+#include <ESP32Servo.h> 
+#include <time.h>       
+#include <Adafruit_NeoPixel.h> // NUEVO: Librería para el anillo de LEDs direccionables
 
 // --- INSTANCIA DEL SENSOR BMP180 ---
 Adafruit_BMP085_Unified bmp = Adafruit_BMP085_Unified(10085);
@@ -18,12 +19,12 @@ const String countryCode = "AR";
 unsigned long lastWeatherUpdate = 0;
 const unsigned long weatherInterval = 1800000; // 30 minutos
 
-// --- NUEVO: VARIABLES DE TIEMPO Y SOL ---
+// --- VARIABLES DE TIEMPO Y SOL ---
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = -10800; // GMT-3 (Buenos Aires)
 const int   daylightOffset_sec = 0;
-unsigned long sunrise = 0; // Hora de amanecer (Unix Timestamp)
-unsigned long sunset = 0;  // Hora de atardecer (Unix Timestamp)
+unsigned long sunrise = 0; 
+unsigned long sunset = 0;  
 
 // --- VARIABLES DE ESTADO Y SENSORES ---
 bool lloviendo = false;
@@ -33,28 +34,33 @@ int nivelAgua = 0;
 bool bombaActiva = false;
 bool modoAutomatico = true;
 bool luzTraseraActiva = false;
+int velocidadGiroActual = 90; // NUEVO: Para sincronizar la velocidad real con el efecto Chaser del LED
 
 // --- ASIGNACIÓN DE PINES ---
 #define BUZZER 8
 #define RELE   5
-#define SERVO  3  // Pin del servo (Asegúrate de que no interfiera con TX/RX)
+#define SERVO  3  
 #define TRIG   2
 #define ECHO   1  
 #define LDR    0
 #define BMP_SDA 7
 #define BMP_SCL 6
-#define PIN_LUZ_TRASERA 4 
+#define PIN_ANILLO_LED 10 // MODIFICADO: El pin 4 ahora controla el anillo NeoPixel
+
+// --- CONFIGURACIÓN DEL ANILLO LED ---
+#define NUM_LEDS 16 // Define aquí la cantidad de LEDs que tiene tu anillo (ej: 8, 12, 16, 24)
+Adafruit_NeoPixel anillo = Adafruit_NeoPixel(NUM_LEDS, PIN_ANILLO_LED, NEO_GRB + NEO_KHZ800);
 
 // --- INSTANCIAS ---
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
-Servo baseServo; // NUEVO: Instancia del servo
+Servo baseServo; 
 
 // --- CONFIGURACIÓN WIFI ---
 const char* ssid = "Wokwi-GUEST";
 const char* password = "";
 
-// --- INTERFAZ WEB EMBEBIDA (Se mantiene igual) ---
+// --- INTERFAZ WEB EMBEBIDA ---
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html>
 <head>
@@ -62,7 +68,6 @@ const char index_html[] PROGMEM = R"rawliteral(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css">
   <style>
-    /* ... (El CSS original se mantiene intacto para ahorrar espacio) ... */
     html { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f9f9f9; color: #333; text-align: center; }
     body { margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; }
     .header { width: 100%; max-width: 400px; display: flex; justify-content: space-between; align-items: center; padding: 10px 0; font-size: 1.2rem; font-weight: bold; }
@@ -95,7 +100,6 @@ const char index_html[] PROGMEM = R"rawliteral(
   </style>
 </head>
 <body>
-
   <div class="content">
     <div class="header"><i class="fas fa-arrow-left"></i><span>Panel de control Voltix</span><i class="fas fa-wrench"></i></div>
     <div class="grid">
@@ -106,14 +110,14 @@ const char index_html[] PROGMEM = R"rawliteral(
     </div>
     <div class="status-section">
       <div class="status-block"><span>Estado</span><div class="led-circle" id="status_led"></div></div>
-      <div class="status-block"><span>Luz trasera</span><button class="btn-pill" style="width:75px; padding:6px; font-size:0.9rem; margin:0;" id="btn_strip" onclick="toggleStrip()">OFF</button></div>
+      <div class="status-block"><span>Anillo LED</span><button class="btn-pill" style="width:75px; padding:6px; font-size:0.9rem; margin:0;" id="btn_strip" onclick="toggleStrip()">OFF</button></div>
     </div>
     <div class="btn-subtext">Bomba</div><button class="btn-pill" id="btn_pump" onclick="togglePump()">Apagada</button>
     <div class="btn-subtext">Rotación</div><button class="btn-pill" id="btn_mode" onclick="toggleMode()">Automático</button>
   </div>
 
 <script>
- var gateway = `ws://${window.location.host}/ws`;
+  var gateway = `ws://${window.location.host}/ws`;
   var websocket;
   var isAutoMode = true;
   window.addEventListener('load', initWebSocket);
@@ -178,9 +182,9 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
     data[len] = 0; String message = (char*)data;
     if (message == "toggle_pump") { bombaActiva = !bombaActiva; digitalWrite(RELE, bombaActiva ? HIGH : LOW); }
     else if (message == "mode:auto") { modoAutomatico = true; } 
-    else if (message == "mode:manual") { modoAutomatico = false; baseServo.write(90); } // Detener servo en manual
-    else if (message == "strip:on") { luzTraseraActiva = true; digitalWrite(PIN_LUZ_TRASERA, HIGH); }
-    else if (message == "strip:off") { luzTraseraActiva = false; digitalWrite(PIN_LUZ_TRASERA, LOW); }
+    else if (message == "mode:manual") { modoAutomatico = false; velocidadGiroActual = 90; baseServo.write(90); } 
+    else if (message == "strip:on") { luzTraseraActiva = true; } // Cambiado para que el efecto base lo controle el anillo NeoPixel
+    else if (message == "strip:off") { luzTraseraActiva = false; }
     notifyClients();
   }
 }
@@ -200,15 +204,117 @@ void updateWeather() {
       if (!deserializeJson(doc, http.getString())) {
         humorAmbiente = doc["main"]["humidity"];
         lloviendo = (strcmp(doc["weather"][0]["main"], "Rain") == 0);
-        
-        // MODIFICACIÓN: Capturar horarios del sol
         sunrise = doc["sys"]["sunrise"];
         sunset = doc["sys"]["sunset"];
-        
         Serial.printf("Clima actualizado. Amanecer: %lu, Atardecer: %lu\n", sunrise, sunset);
       }
     }
     http.end();
+  }
+}
+
+// --- NUEVO ALGORITMO: CONTROL DE EFECTOS DEL ANILLO LED (No bloqueante) ---
+void actualizarAnilloLED() {
+  static unsigned long lastLEDMillis = 0;
+  static int estadoEfectoActual = -1;
+  int nuevoEstado = 0; // 0 = Estado por defecto (Luz ambiente o apagado)
+
+  // Evaluar jerarquía estricta de prioridades
+  if (nivelAgua < 20) { 
+    nuevoEstado = 1; // Prioridad 1 (Crítica): Sin Agua Suficiente
+  } else if (bombaActiva) {
+    nuevoEstado = 2; // Prioridad 2 (Media): Bomba activa
+  } else if (modoAutomatico && velocidadGiroActual > 90) {
+    nuevoEstado = 3; // Prioridad 3 (Media): Base girando
+  } else if (WiFi.status() != WL_CONNECTED) {
+    nuevoEstado = 4; // Prioridad 4 (Baja): Sin conexión Wi-Fi
+  }
+
+  // Si cambia el estado general, limpiamos el anillo para dibujar el nuevo efecto sin solapamientos
+  if (nuevoEstado != estadoEfectoActual) {
+    estadoEfectoActual = nuevoEstado;
+    anillo.clear();
+  }
+
+  unsigned long currentMillis = millis();
+
+  switch (estadoEfectoActual) {
+    case 1: { // --- SIN AGUA SUFICIENTE: Parpadeo Rápido (Strobe) en Rojo ---
+      static bool ledState = false;
+      if (currentMillis - lastLEDMillis > 100) { // 100ms por ciclo (Intermitente rápido)
+        lastLEDMillis = currentMillis;
+        ledState = !ledState;
+        for (int i = 0; i < NUM_LEDS; i++) {
+          anillo.setPixelColor(i, ledState ? anillo.Color(255, 0, 0) : anillo.Color(0, 0, 0));
+        }
+        anillo.show();
+      }
+      break;
+    }
+    
+    case 2: { // --- BOMBA EN FUNCIONAMIENTO: Ola de color dinámica en Azul Celeste/Turquesa ---
+      static int desplazar = 0;
+      if (currentMillis - lastLEDMillis > 60) { // Velocidad del flujo
+        lastLEDMillis = currentMillis;
+        for (int i = 0; i < NUM_LEDS; i++) {
+          // Genera un brillo oscilante usando ondas senoidales simulando el flujo de agua
+          int brillo = (sin((i + desplazar) * 0.6) + 1) * 100 + 50; 
+          anillo.setPixelColor(i, anillo.Color(0, brillo / 2, brillo)); // Turquesa/Celeste dinámico
+        }
+        anillo.show();
+        desplazar++;
+      }
+      break;
+    }
+
+    case 3: { // --- BASE GIRANDO: Persecución (Chaser) en Verde/Cian ---
+      static int posMarquesina = 0;
+      // Sincronización de velocidad dinámica: a mayor velocidad del motor (91 a 180), menor tiempo entre saltos de LED
+      int tiempoGiroLED = map(velocidadGiroActual, 90, 180, 150, 30);
+      tiempoGiroLED = constrain(tiempoGiroLED, 30, 150);
+
+      if (currentMillis - lastLEDMillis > tiempoGiroLED) {
+        lastLEDMillis = currentMillis;
+        anillo.clear();
+        // Ilumina 3 leds continuos en degradé para generar el efecto óptico de rotación fluida
+        anillo.setPixelColor(posMarquesina, anillo.Color(0, 255, 100)); 
+        anillo.setPixelColor((posMarquesina + 1) % NUM_LEDS, anillo.Color(0, 180, 70));
+        anillo.setPixelColor((posMarquesina + 2) % NUM_LEDS, anillo.Color(0, 100, 40));
+        anillo.show();
+        posMarquesina = (posMarquesina + 1) % NUM_LEDS;
+      }
+      break;
+    }
+
+    case 4: { // --- SIN WI-FI: Respiración (Fade In / Fade Out) en Azul ---
+      static int brilloRespiracion = 0;
+      static int direccionFade = 4;
+      if (currentMillis - lastLEDMillis > 20) { // Suavidad de transición
+        lastLEDMillis = currentMillis;
+        brilloRespiracion += direccionFade;
+        if (brilloRespiracion <= 5 || brilloRespiracion >= 250) {
+          direccionFade = -direccionFade; // Invierte el sentido del desvanecido
+        }
+        brilloRespiracion = constrain(brilloRespiracion, 5, 250);
+        for (int i = 0; i < NUM_LEDS; i++) {
+          anillo.setPixelColor(i, anillo.Color(0, 0, brilloRespiracion));
+        }
+        anillo.show();
+      }
+      break;
+    }
+
+    default: { // --- REPOSO / SIN ALERTAS: Controlado manualmente desde el dashboard web ---
+      if (luzTraseraActiva) {
+        for (int i = 0; i < NUM_LEDS; i++) {
+          anillo.setPixelColor(i, anillo.Color(100, 130, 100)); // Luz blanca/verde suave de fondo ambiental
+        }
+      } else {
+        anillo.clear(); // Apagado
+      }
+      anillo.show();
+      break;
+    }
   }
 }
 
@@ -217,14 +323,17 @@ void setup() {
 
   pinMode(RELE, OUTPUT); pinMode(BUZZER, OUTPUT);
   pinMode(TRIG, OUTPUT); pinMode(ECHO, INPUT);
-  pinMode(PIN_LUZ_TRASERA, OUTPUT); digitalWrite(PIN_LUZ_TRASERA, LOW);
   digitalWrite(RELE, LOW); 
+
+  // Iniciar Anillo LED
+  anillo.begin();
+  anillo.show(); // Inicia apagado
 
   // Iniciar Servo
   ESP32PWM::allocateTimer(0);
   baseServo.setPeriodHertz(50);
   baseServo.attach(SERVO, 500, 2400); 
-  baseServo.write(90); // 90 grados = Detenido en servos de rotación continua
+  baseServo.write(90); 
 
   Wire.begin(BMP_SDA, BMP_SCL);
   bmp.begin();
@@ -233,7 +342,6 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
   Serial.println("\nWiFi Conectado!");
 
-  // NUEVO: Sincronizar hora del reloj interno vía Internet (NTP)
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
   ws.onEvent(onEvent);
@@ -248,6 +356,9 @@ void setup() {
 void loop() {
   ws.cleanupClients();
   
+  // NUEVO: La rutina del anillo corre a la máxima velocidad del microcontrolador sin demoras intermedias
+  actualizarAnilloLED(); 
+
   if (millis() - lastWeatherUpdate > weatherInterval) {
     updateWeather();
     lastWeatherUpdate = millis();
@@ -259,9 +370,7 @@ void loop() {
     bmp.getTemperature(&temperaturaActual);
     int lecturaLDR = analogRead(LDR);
     
-    // --- LÓGICA AUTOMÁTICA (Bomba + Servo) ---
     if (modoAutomatico) {
-       
        // 1. Lógica de la Bomba de Agua
        if (!lloviendo && temperaturaActual > 28 && lecturaLDR > 2500) {
            digitalWrite(RELE, HIGH); bombaActiva = true;
@@ -270,34 +379,22 @@ void loop() {
            digitalWrite(RELE, LOW);  bombaActiva = false;
        }
 
-       // 2. NUEVO ALGORITMO: Lógica de Rotación Solar
+       // 2. Lógica de Rotación Solar
        time_t now; 
-       time(&now); // Obtiene la hora actual UNIX
+       time(&now); 
 
-       // Verifica si estamos en horario de luz solar según OpenWeather
        if (now >= sunrise && now <= sunset) {
-           
-           // Evaluamos la luz real in situ. 
-           // Suponemos que LDR > 1000 es luz útil para las plantas.
            if (lecturaLDR > 1000) {
-               
-               // MAPEO INTELIGENTE: 
-               // Mientras MÁS luz detecta el LDR (1000 a 4095),
-               // MÁS rápido gira el motor (92 a 180).
-               // (90 es motor apagado, 92 es giro muy lento, 180 es máximo).
                int velocidadGiro = map(lecturaLDR, 1000, 4095, 92, 180);
-               
-               // Para que no se vuelva loco el servo por fluctuaciones, lo limitamos.
-               velocidadGiro = constrain(velocidadGiro, 90, 180);
-               
-               baseServo.write(velocidadGiro);
+               velocidadGiroActual = constrain(velocidadGiro, 90, 180); // Actualiza la velocidad real para el LED
+               baseServo.write(velocidadGiroActual);
            } else {
-               // Si está nublado o bajo sombra muy pesada, se detiene para ahorrar energía.
-               baseServo.write(90); 
+               velocidadGiroActual = 90;
+               baseServo.write(velocidadGiroActual); 
            }
        } else {
-           // Es de noche, detenemos la base.
-           baseServo.write(90); 
+           velocidadGiroActual = 90;
+           baseServo.write(velocidadGiroActual); 
        }
     }
     
