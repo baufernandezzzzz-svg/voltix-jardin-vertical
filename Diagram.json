@@ -107,7 +107,7 @@
     [ "ldr1:GND", "esp:GND", "black", [ "h76.8", "v-106", "h163.2", "v48" ] ],
     [ "ring1:GND", "esp:GND", "black", [ "v0", "h105.6", "v-124.8" ] ],
     [ "ring1:VCC", "esp:5V", "red", [ "v-9.6", "h105.6", "v-124.8" ] ],
-    [ "ring1:DIN", "esp:RX", "gold", [ "v-28.8", "h-48", "v-48" ] ],
+    [ "ring1:DIN", "esp:10", "gold", [ "v-28.8", "h-48", "v-48" ] ],
     [ "esp:3", "servo3:PWM", "orange", [ "h0" ] ],
     [ "servo2:PWM", "esp:3", "orange", [ "v0" ] ],
     [ "servo1:PWM", "esp:3", "orange", [ "v0" ] ],
