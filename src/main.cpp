@@ -6,8 +6,8 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP085_U.h>
 #include <ESP32Servo.h> 
-#include <time.h>       
-#include <Adafruit_NeoPixel.h> // NUEVO: Librería para el anillo de LEDs direccionables
+#include <time.h>        
+#include <Adafruit_NeoPixel.h> 
 
 // --- INSTANCIA DEL SENSOR BMP180 ---
 Adafruit_BMP085_Unified bmp = Adafruit_BMP085_Unified(10085);
@@ -30,11 +30,11 @@ unsigned long sunset = 0;
 bool lloviendo = false;
 int humorAmbiente = 0;
 float temperaturaActual = 0.0;
-int nivelAgua = 0;              
+float nivelAgua = 0.0; // Mantiene el valor en porcentaje (0 a 100%)
 bool bombaActiva = false;
 bool modoAutomatico = true;
 bool luzTraseraActiva = false;
-int velocidadGiroActual = 90; // NUEVO: Para sincronizar la velocidad real con el efecto Chaser del LED
+int velocidadGiroActual = 90; 
 
 // --- ASIGNACIÓN DE PINES ---
 #define BUZZER 8
@@ -45,10 +45,10 @@ int velocidadGiroActual = 90; // NUEVO: Para sincronizar la velocidad real con e
 #define LDR    0
 #define BMP_SDA 7
 #define BMP_SCL 6
-#define PIN_ANILLO_LED 10 // MODIFICADO: El pin 4 ahora controla el anillo NeoPixel
+#define PIN_ANILLO_LED 10 
 
 // --- CONFIGURACIÓN DEL ANILLO LED ---
-#define NUM_LEDS 16 // Define aquí la cantidad de LEDs que tiene tu anillo (ej: 8, 12, 16, 24)
+#define NUM_LEDS 16 
 Adafruit_NeoPixel anillo = Adafruit_NeoPixel(NUM_LEDS, PIN_ANILLO_LED, NEO_GRB + NEO_KHZ800);
 
 // --- INSTANCIAS ---
@@ -121,22 +121,23 @@ const char index_html[] PROGMEM = R"rawliteral(
   var websocket;
   var isAutoMode = true;
   window.addEventListener('load', initWebSocket);
-
   function initWebSocket() { websocket = new WebSocket(gateway); websocket.onmessage = onMessage; websocket.onclose = function() { setTimeout(initWebSocket, 2000); }; }
-  function updateGauge(gaugeId, textId, val) { if(val > 100) val = 100; if(val < 0) val = 0; var circle = document.getElementById(gaugeId); circle.style.strokeDashoffset = 330 - (val / 100) * 250; document.getElementById(textId).innerText = Math.round(val); }
-
+  function updateGauge(gaugeId, textId, val, maxVal = 100) { 
+    if(val > maxVal) val = maxVal; if(val < 0) val = 0; 
+    var circle = document.getElementById(gaugeId); 
+    circle.style.strokeDashoffset = 330 - (val / maxVal) * 250; 
+    document.getElementById(textId).innerText = Math.round(val); 
+  }
   function onMessage(event) {
     var data = JSON.parse(event.data);
-    updateGauge('g_temp', 'v_temp', data.temp);
-    updateGauge('g_hum', 'v_hum', data.ext_hum);
-    updateGauge('g_soil', 'v_soil', (data.light / 4095) * 100);
-    updateGauge('g_water', 'v_water', data.water);
-
+    updateGauge('g_temp', 'v_temp', data.temp, 100);
+    updateGauge('g_hum', 'v_hum', data.ext_hum, 100);
+    updateGauge('g_soil', 'v_soil', (data.light / 4095) * 100, 100);
+    updateGauge('g_water', 'v_water', data.water, 100);
     var pumpBtn = document.getElementById('btn_pump');
     if(data.pump) { pumpBtn.innerText = "Pump On"; pumpBtn.style.background = "#8e44ad"; pumpBtn.style.color = "#fff"; document.getElementById('status_led').style.backgroundColor = "#2ecc71"; } 
     else { pumpBtn.innerText = "Pump Off"; pumpBtn.style.background = "transparent"; pumpBtn.style.color = "#8e44ad"; document.getElementById('status_led').style.backgroundColor = "#d64756"; }
   }
-
   function togglePump() { websocket.send('toggle_pump'); }
   function toggleMode() { isAutoMode = !isAutoMode; document.getElementById('btn_mode').innerText = isAutoMode ? "Automatic" : "Manual"; websocket.send('mode:' + (isAutoMode ? 'auto' : 'manual')); }
   function toggleStrip() {
@@ -152,7 +153,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 // --- ENVÍO DE DATOS JSON POR WEBSOCKET ---
 void notifyClients() {
   JsonDocument doc; 
-  doc["water"] = nivelAgua;
+  doc["water"] = nivelAgua; 
   doc["light"] = analogRead(LDR); 
   doc["temp"] = temperaturaActual;
   doc["pump"] = bombaActiva;
@@ -164,15 +165,33 @@ void notifyClients() {
   ws.textAll(buffer);
 }
 
-// --- MEDICIÓN DEL SENSOR ULTRASÓNICO ---
-int obtenerPorcentajeAgua() {
+// --- MEDICIÓN MODIFICADA (LÍMITE ESTRICTO DE 30 CM) ---
+float obtenerNivelAguaPorcentaje() {
   digitalWrite(TRIG, LOW); delayMicroseconds(2);
   digitalWrite(TRIG, HIGH); delayMicroseconds(10);
   digitalWrite(TRIG, LOW);
-  long duracion = pulseIn(ECHO, HIGH, 26000); 
-  if (duracion == 0) return 0;
-  float distancia = duracion * 0.034 / 2;
-  return constrain(map(distancia, 30, 4, 0, 100), 0, 100);
+  
+  long duracion = pulseIn(ECHO, HIGH); 
+  
+  if (duracion == 0) return 0.0;
+  
+  float distancia = duracion * 0.2834;
+  Serial.print ("[DEBUG] ");
+  Serial.println (distancia);
+  
+  // Si la distancia es mayor a 30 cm, la ignoramos y devolvemos 0% (vacío)
+  if (distancia > 30.0) {
+    return 0.0;
+  }
+  
+  // Regla solicitada: 0 cm = 100%, 30 cm = 0%
+  float porcentaje = ((30.0 - distancia) / 28.0) * 100.0;
+  
+  // Limitamos los valores inferiores a 0 y superiores a 100 por seguridad extra
+  if(porcentaje < 0.0) porcentaje = 0.0;
+  if(porcentaje > 100.0) porcentaje = 100.0;
+  
+  return porcentaje;
 }
 
 // --- PROCESAMIENTO DE ACCIONES WEB ---
@@ -183,7 +202,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
     if (message == "toggle_pump") { bombaActiva = !bombaActiva; digitalWrite(RELE, bombaActiva ? HIGH : LOW); }
     else if (message == "mode:auto") { modoAutomatico = true; } 
     else if (message == "mode:manual") { modoAutomatico = false; velocidadGiroActual = 90; baseServo.write(90); } 
-    else if (message == "strip:on") { luzTraseraActiva = true; } // Cambiado para que el efecto base lo controle el anillo NeoPixel
+    else if (message == "strip:on") { luzTraseraActiva = true; } 
     else if (message == "strip:off") { luzTraseraActiva = false; }
     notifyClients();
   }
@@ -206,199 +225,102 @@ void updateWeather() {
         lloviendo = (strcmp(doc["weather"][0]["main"], "Rain") == 0);
         sunrise = doc["sys"]["sunrise"];
         sunset = doc["sys"]["sunset"];
-        Serial.printf("Clima actualizado. Amanecer: %lu, Atardecer: %lu\n", sunrise, sunset);
       }
     }
     http.end();
   }
 }
 
-// --- NUEVO ALGORITMO: CONTROL DE EFECTOS DEL ANILLO LED (No bloqueante) ---
+// --- CONTROL DE EFECTOS DEL ANILLO LED ---
 void actualizarAnilloLED() {
   static unsigned long lastLEDMillis = 0;
   static int estadoEfectoActual = -1;
-  int nuevoEstado = 0; // 0 = Estado por defecto (Luz ambiente o apagado)
+  int nuevoEstado = 0;
 
-  // Evaluar jerarquía estricta de prioridades
-  if (nivelAgua < 20) { 
-    nuevoEstado = 1; // Prioridad 1 (Crítica): Sin Agua Suficiente
-  } else if (bombaActiva) {
-    nuevoEstado = 2; // Prioridad 2 (Media): Bomba activa
-  } else if (modoAutomatico && velocidadGiroActual > 90) {
-    nuevoEstado = 3; // Prioridad 3 (Media): Base girando
-  } else if (WiFi.status() != WL_CONNECTED) {
-    nuevoEstado = 4; // Prioridad 4 (Baja): Sin conexión Wi-Fi
-  }
+  if (nivelAgua < 33.0) { nuevoEstado = 1; } 
+  else if (bombaActiva) { nuevoEstado = 2; } 
+  else if (modoAutomatico && velocidadGiroActual > 90) { nuevoEstado = 3; } 
+  else if (WiFi.status() != WL_CONNECTED) { nuevoEstado = 4; }
 
-  // Si cambia el estado general, limpiamos el anillo para dibujar el nuevo efecto sin solapamientos
-  if (nuevoEstado != estadoEfectoActual) {
-    estadoEfectoActual = nuevoEstado;
-    anillo.clear();
-  }
-
+  if (nuevoEstado != estadoEfectoActual) { estadoEfectoActual = nuevoEstado; anillo.clear(); }
   unsigned long currentMillis = millis();
 
   switch (estadoEfectoActual) {
-    case 1: { // --- SIN AGUA SUFICIENTE: Parpadeo Rápido (Strobe) en Rojo ---
+    case 1: { 
       static bool ledState = false;
-      if (currentMillis - lastLEDMillis > 100) { // 100ms por ciclo (Intermitente rápido)
-        lastLEDMillis = currentMillis;
-        ledState = !ledState;
-        for (int i = 0; i < NUM_LEDS; i++) {
-          anillo.setPixelColor(i, ledState ? anillo.Color(255, 0, 0) : anillo.Color(0, 0, 0));
-        }
-        anillo.show();
-      }
-      break;
+      if (currentMillis - lastLEDMillis > 100) { lastLEDMillis = currentMillis; ledState = !ledState;
+        for (int i = 0; i < NUM_LEDS; i++) anillo.setPixelColor(i, ledState ? anillo.Color(255, 0, 0) : anillo.Color(0, 0, 0));
+        anillo.show(); } break;
     }
-    
-    case 2: { // --- BOMBA EN FUNCIONAMIENTO: Ola de color dinámica en Azul Celeste/Turquesa ---
+    case 2: { 
       static int desplazar = 0;
-      if (currentMillis - lastLEDMillis > 60) { // Velocidad del flujo
-        lastLEDMillis = currentMillis;
-        for (int i = 0; i < NUM_LEDS; i++) {
-          // Genera un brillo oscilante usando ondas senoidales simulando el flujo de agua
-          int brillo = (sin((i + desplazar) * 0.6) + 1) * 100 + 50; 
-          anillo.setPixelColor(i, anillo.Color(0, brillo / 2, brillo)); // Turquesa/Celeste dinámico
-        }
-        anillo.show();
-        desplazar++;
-      }
-      break;
+      if (currentMillis - lastLEDMillis > 60) { lastLEDMillis = currentMillis;
+        for (int i = 0; i < NUM_LEDS; i++) { int brillo = (sin((i + desplazar) * 0.6) + 1) * 100 + 50; anillo.setPixelColor(i, anillo.Color(0, brillo / 2, brillo)); }
+        anillo.show(); desplazar++; } break;
     }
-
-    case 3: { // --- BASE GIRANDO: Persecución (Chaser) en Verde/Cian ---
+    case 3: { 
       static int posMarquesina = 0;
-      // Sincronización de velocidad dinámica: a mayor velocidad del motor (91 a 180), menor tiempo entre saltos de LED
-      int tiempoGiroLED = map(velocidadGiroActual, 90, 180, 150, 30);
-      tiempoGiroLED = constrain(tiempoGiroLED, 30, 150);
-
-      if (currentMillis - lastLEDMillis > tiempoGiroLED) {
-        lastLEDMillis = currentMillis;
-        anillo.clear();
-        // Ilumina 3 leds continuos en degradé para generar el efecto óptico de rotación fluida
-        anillo.setPixelColor(posMarquesina, anillo.Color(0, 255, 100)); 
-        anillo.setPixelColor((posMarquesina + 1) % NUM_LEDS, anillo.Color(0, 180, 70));
-        anillo.setPixelColor((posMarquesina + 2) % NUM_LEDS, anillo.Color(0, 100, 40));
-        anillo.show();
-        posMarquesina = (posMarquesina + 1) % NUM_LEDS;
-      }
-      break;
+      int tiempoGiroLED = constrain(map(velocidadGiroActual, 90, 180, 150, 30), 30, 150);
+      if (currentMillis - lastLEDMillis > tiempoGiroLED) { lastLEDMillis = currentMillis; anillo.clear();
+        anillo.setPixelColor(posMarquesina, anillo.Color(0, 255, 100)); anillo.setPixelColor((posMarquesina + 1) % NUM_LEDS, anillo.Color(0, 180, 70)); anillo.setPixelColor((posMarquesina + 2) % NUM_LEDS, anillo.Color(0, 100, 40));
+        anillo.show(); posMarquesina = (posMarquesina + 1) % NUM_LEDS; } break;
     }
-
-    case 4: { // --- SIN WI-FI: Respiración (Fade In / Fade Out) en Azul ---
-      static int brilloRespiracion = 0;
-      static int direccionFade = 4;
-      if (currentMillis - lastLEDMillis > 20) { // Suavidad de transición
-        lastLEDMillis = currentMillis;
-        brilloRespiracion += direccionFade;
-        if (brilloRespiracion <= 5 || brilloRespiracion >= 250) {
-          direccionFade = -direccionFade; // Invierte el sentido del desvanecido
-        }
+    case 4: { 
+      static int brilloRespiracion = 0; static int direccionFade = 4;
+      if (currentMillis - lastLEDMillis > 20) { lastLEDMillis = currentMillis; brilloRespiracion += direccionFade;
+        if (brilloRespiracion <= 5 || brilloRespiracion >= 250) direccionFade = -direccionFade; 
         brilloRespiracion = constrain(brilloRespiracion, 5, 250);
-        for (int i = 0; i < NUM_LEDS; i++) {
-          anillo.setPixelColor(i, anillo.Color(0, 0, brilloRespiracion));
-        }
-        anillo.show();
-      }
-      break;
+        for (int i = 0; i < NUM_LEDS; i++) anillo.setPixelColor(i, anillo.Color(0, 0, brilloRespiracion));
+        anillo.show(); } break;
     }
-
-    default: { // --- REPOSO / SIN ALERTAS: Controlado manualmente desde el dashboard web ---
-      if (luzTraseraActiva) {
-        for (int i = 0; i < NUM_LEDS; i++) {
-          anillo.setPixelColor(i, anillo.Color(100, 130, 100)); // Luz blanca/verde suave de fondo ambiental
-        }
-      } else {
-        anillo.clear(); // Apagado
-      }
-      anillo.show();
-      break;
-    }
+    default: { if (luzTraseraActiva) for (int i = 0; i < NUM_LEDS; i++) anillo.setPixelColor(i, anillo.Color(100, 130, 100)); else anillo.clear(); anillo.show(); break; }
   }
 }
 
 void setup() {
   Serial.begin(115200);
-
   pinMode(RELE, OUTPUT); pinMode(BUZZER, OUTPUT);
   pinMode(TRIG, OUTPUT); pinMode(ECHO, INPUT);
   digitalWrite(RELE, LOW); 
-
-  // Iniciar Anillo LED
-  anillo.begin();
-  anillo.show(); // Inicia apagado
-
-  // Iniciar Servo
+  anillo.begin(); anillo.show(); 
   ESP32PWM::allocateTimer(0);
   baseServo.setPeriodHertz(50);
   baseServo.attach(SERVO, 500, 2400); 
   baseServo.write(90); 
-
-  Wire.begin(BMP_SDA, BMP_SCL);
-  bmp.begin();
-
+  Wire.begin(BMP_SDA, BMP_SCL); bmp.begin();
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.println("\nWiFi Conectado!");
-
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-
   ws.onEvent(onEvent);
   server.addHandler(&ws);
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){ request->send_P(200, "text/html", index_html); });
   server.begin();
-
-  updateWeather();
-  lastWeatherUpdate = millis();
+  updateWeather(); lastWeatherUpdate = millis();
 }
 
 void loop() {
   ws.cleanupClients();
-  
-  // NUEVO: La rutina del anillo corre a la máxima velocidad del microcontrolador sin demoras intermedias
   actualizarAnilloLED(); 
-
-  if (millis() - lastWeatherUpdate > weatherInterval) {
-    updateWeather();
-    lastWeatherUpdate = millis();
-  }
-
+  if (millis() - lastWeatherUpdate > weatherInterval) { updateWeather(); lastWeatherUpdate = millis(); }
   static unsigned long lastUpdate = 0;
   if (millis() - lastUpdate > 2000) {
-    nivelAgua = obtenerPorcentajeAgua(); 
+    nivelAgua = obtenerNivelAguaPorcentaje(); 
     bmp.getTemperature(&temperaturaActual);
     int lecturaLDR = analogRead(LDR);
-    
     if (modoAutomatico) {
-       // 1. Lógica de la Bomba de Agua
        if (!lloviendo && temperaturaActual > 28 && lecturaLDR > 2500) {
-           digitalWrite(RELE, HIGH); bombaActiva = true;
-           notifyClients(); 
-           delay(2200);     
-           digitalWrite(RELE, LOW);  bombaActiva = false;
+           if (nivelAgua > 33.0) {
+               digitalWrite(RELE, HIGH); bombaActiva = true; notifyClients(); delay(2200); digitalWrite(RELE, LOW); bombaActiva = false;
+           }
        }
-
-       // 2. Lógica de Rotación Solar
-       time_t now; 
-       time(&now); 
-
+       time_t now; time(&now); 
        if (now >= sunrise && now <= sunset) {
            if (lecturaLDR > 1000) {
-               int velocidadGiro = map(lecturaLDR, 1000, 4095, 92, 180);
-               velocidadGiroActual = constrain(velocidadGiro, 90, 180); // Actualiza la velocidad real para el LED
+               velocidadGiroActual = constrain(map(lecturaLDR, 1000, 4095, 92, 180), 90, 180);
                baseServo.write(velocidadGiroActual);
-           } else {
-               velocidadGiroActual = 90;
-               baseServo.write(velocidadGiroActual); 
-           }
-       } else {
-           velocidadGiroActual = 90;
-           baseServo.write(velocidadGiroActual); 
-       }
+           } else { velocidadGiroActual = 90; baseServo.write(velocidadGiroActual); }
+       } else { velocidadGiroActual = 90; baseServo.write(velocidadGiroActual); }
     }
-    
-    notifyClients(); 
-    lastUpdate = millis();
+    notifyClients(); lastUpdate = millis();
   }
 }

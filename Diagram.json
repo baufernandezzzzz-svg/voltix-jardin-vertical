@@ -81,7 +81,7 @@
       "rotate": 270,
       "attrs": { "hornColor": "#ccc" }
     },
-    { "type": "wokwi-hc-sr04", "id": "ultrasonic1", "top": 59.1, "left": 187.9, "attrs": {} }
+    { "type": "wokwi-hc-sr04", "id": "ultrasonic1", "top": 59.1, "left": 187.9, "attrs": { "distance": "25"} }
   ],
   "connections": [
     [ "esp:TX", "$serialMonitor:RX", "", [] ],
